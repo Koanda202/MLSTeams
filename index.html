@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLS Stadium Road Finder</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111c33;
+    --panel-2: #17233f;
+    --border: #26355a;
+    --text: #e6ecf7;
+    --muted: #93a3c2;
+    --accent: #38bdf8;
+    --pass: #22c55e;
+    --fail: #ef4444;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 12px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  header h1 { font-size: 18px; margin: 0; flex: 0 0 auto; }
+  header h1 span { color: var(--accent); }
+  #searchForm { display: flex; gap: 8px; flex: 1 1 360px; min-width: 0; }
+  #uniInput {
+    flex: 1; min-width: 0; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 14px;
+  }
+  #uniInput:focus { outline: 2px solid var(--accent); }
+  #searchBtn {
+    padding: 9px 16px; border-radius: 8px; border: 0; background: var(--accent);
+    color: #062035; font-weight: 700; cursor: pointer;
+  }
+  #searchBtn:disabled { opacity: .5; cursor: wait; }
+  #status { font-size: 13px; color: var(--muted); flex: 1 1 100%; }
+  #status.error { color: var(--fail); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #map { flex: 1; min-height: 360px; }
+  aside {
+    width: 440px; max-width: 100%; overflow-y: auto; background: var(--panel);
+    border-left: 1px solid var(--border); padding: 12px;
+  }
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    #map { flex: none; height: 55vh; }
+    aside { width: 100%; border-left: 0; border-top: 1px solid var(--border); }
+  }
+  h2 { font-size: 15px; margin: 4px 0 10px; color: var(--accent); letter-spacing: .02em; }
+  .uni-card {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px; margin-bottom: 12px; font-size: 13px;
+  }
+  .uni-card b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .result {
+    display: flex; gap: 10px; align-items: center; background: var(--panel-2);
+    border: 1px solid var(--border); border-left: 5px solid var(--c, var(--accent));
+    border-radius: 10px; padding: 8px; margin-bottom: 8px; cursor: pointer;
+  }
+  .result:hover { background: #1c2b4d; }
+  .result .icon { flex: 0 0 64px; width: 64px; height: 64px; }
+  .result .icon svg { width: 64px; height: 64px; }
+  .result .rank { font-size: 22px; font-weight: 800; color: var(--muted); width: 22px; text-align: center; }
+  .result .info { flex: 1; min-width: 0; font-size: 13px; }
+  .result .team { font-weight: 700; font-size: 14px; }
+  .result .stad { color: var(--muted); }
+  .result .metrics { margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .result .metrics span b { color: var(--text); }
+  .candidates { font-size: 12px; color: var(--muted); margin: 6px 0 14px; }
+  .candidates table { width: 100%; border-collapse: collapse; }
+  .candidates td, .candidates th { padding: 3px 4px; border-bottom: 1px solid var(--border); text-align: left; }
+  .candidates tr.top td { color: var(--text); font-weight: 600; }
+  .audit {
+    background: #0b1428; border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-size: 12.5px;
+  }
+  .check { border-bottom: 1px dashed var(--border); padding: 8px 0; }
+  .check:last-child { border-bottom: 0; }
+  .check-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; }
+  .badge { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+  .badge.pass { background: rgba(34,197,94,.15); color: var(--pass); border: 1px solid var(--pass); }
+  .badge.fail { background: rgba(239,68,68,.15); color: var(--fail); border: 1px solid var(--fail); }
+  .badge.pending { background: rgba(245,158,11,.15); color: var(--warn); border: 1px solid var(--warn); }
+  .check-detail { color: var(--muted); margin-top: 4px; }
+  .check-detail table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .check-detail td, .check-detail th { padding: 2px 4px; text-align: left; border-bottom: 1px solid #1d2a48; }
+  .ok { color: var(--pass); } .bad { color: var(--fail); }
+  .stadium-marker { background: none; border: 0; }
+  .stadium-marker svg { filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+  .uni-marker { background: none; border: 0; }
+  .leaflet-tooltip.stadium-label {
+    background: rgba(15,23,42,.92); color: #fff; border: 1px solid var(--c, #fff);
+    border-radius: 6px; font-size: 11.5px; line-height: 1.25; padding: 4px 7px; box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  }
+  .leaflet-tooltip.stadium-label b { color: var(--c2, #fff); }
+  .leaflet-tooltip.stadium-label:before { display: none; }
+  .empty { color: var(--muted); font-size: 13px; }
+  footer { font-size: 11px; color: var(--muted); padding: 4px 16px; background: var(--panel); border-top: 1px solid var(--border); }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚽ MLS <span>Stadium Road Finder</span></h1>
+  <form id="searchForm" autocomplete="off">
+    <input id="uniInput" type="text" placeholder="Enter a US university, e.g. University of Michigan" aria-label="University name" required minlength="3" maxlength="120">
+    <button id="searchBtn" type="submit">Find stadiums</button>
+  </form>
+  <div id="status">Enter a US university name to find the 4 closest MLS stadiums by actual road driving distance (OSRM).</div>
+</header>
+<main>
+  <div id="map"></div>
+  <aside>
+    <div id="universityBox"></div>
+    <h2>4 Closest MLS Stadiums by Road</h2>
+    <div id="results"><p class="empty">No search yet.</p></div>
+    <div id="candidates"></div>
+    <h2>GIS Integrity &amp; Verification Audit</h2>
+    <div id="audit" class="audit"><p class="empty">Audit runs automatically after each search.</p></div>
+  </aside>
+</main>
+<footer>
+  Geocoding © <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">OSM Nominatim</a> ·
+  Routing © <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> ·
+  Map data © OpenStreetMap contributors · Imagery © Esri
+</footer>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   1. COMPLETE 2026 MLS DATASET — all 30 clubs, WGS84 coordinates
+   =================================================================== */
+const stadiums = [
+  { id: "ATL", team: "Atlanta United FC", stadium: "Mercedes-Benz Stadium", city: "Atlanta, GA", lat: 33.7554, lon: -84.4008, primaryColor: "#80000A", secondaryColor: "#A19060", roofStyle: "petal", capacity: 42500 },
+  { id: "ATX", team: "Austin FC", stadium: "Q2 Stadium", city: "Austin, TX", lat: 30.3877, lon: -97.7195, primaryColor: "#00B140", secondaryColor: "#000000", roofStyle: "canopy", capacity: 20738 },
+  { id: "MTL", team: "CF Montréal", stadium: "Saputo Stadium", city: "Montreal, QC", lat: 45.5627, lon: -73.5528, primaryColor: "#0033A1", secondaryColor: "#000000", roofStyle: "open-bowl", capacity: 19619 },
+  { id: "CLT", team: "Charlotte FC", stadium: "Bank of America Stadium", city: "Charlotte, NC", lat: 35.2258, lon: -80.8528, primaryColor: "#1A85C8", secondaryColor: "#000000", roofStyle: "horseshoe", capacity: 38000 },
+  { id: "CHI", team: "Chicago Fire FC", stadium: "Soldier Field", city: "Chicago, IL", lat: 41.8623, lon: -87.6167, primaryColor: "#9A1D20", secondaryColor: "#7CCDEF", roofStyle: "colonnade", capacity: 61500 },
+  { id: "COL", team: "Colorado Rapids", stadium: "Dick's Sporting Goods Park", city: "Commerce City, CO", lat: 39.8056, lon: -104.8919, primaryColor: "#960A2C", secondaryColor: "#9CC2EA", roofStyle: "open-bowl", capacity: 18061 },
+  { id: "CLB", team: "Columbus Crew", stadium: "ScottsMiracle-Gro Field", city: "Columbus, OH", lat: 39.9686, lon: -83.0171, primaryColor: "#FEDD00", secondaryColor: "#000000", roofStyle: "rectilinear", capacity: 20371 },
+  { id: "DC", team: "D.C. United", stadium: "Audi Field", city: "Washington, D.C.", lat: 38.8686, lon: -77.0128, primaryColor: "#000000", secondaryColor: "#EF3E42", roofStyle: "canopy", capacity: 20000 },
+  { id: "CIN", team: "FC Cincinnati", stadium: "TQL Stadium", city: "Cincinnati, OH", lat: 39.1113, lon: -84.5222, primaryColor: "#F05323", secondaryColor: "#263B80", roofStyle: "sail", capacity: 26000 },
+  { id: "DAL", team: "FC Dallas", stadium: "Toyota Stadium", city: "Frisco, TX", lat: 33.1543, lon: -96.8353, primaryColor: "#E81F3E", secondaryColor: "#2A4076", roofStyle: "horseshoe", capacity: 20500 },
+  { id: "HOU", team: "Houston Dynamo FC", stadium: "Shell Energy Stadium", city: "Houston, TX", lat: 29.7522, lon: -95.3524, primaryColor: "#FF6B00", secondaryColor: "#101820", roofStyle: "rectilinear", capacity: 22039 },
+  { id: "MIA", team: "Inter Miami CF", stadium: "Nu Stadium", city: "Miami, FL", lat: 25.7930, lon: -80.2585, primaryColor: "#F7B5CD", secondaryColor: "#231F20", roofStyle: "canopy", capacity: 25000 },
+  { id: "LAG", team: "LA Galaxy", stadium: "Dignity Health Sports Park", city: "Carson, CA", lat: 33.8644, lon: -118.2611, primaryColor: "#00245D", secondaryColor: "#FFD200", roofStyle: "open-bowl", capacity: 27000 },
+  { id: "LAFC", team: "Los Angeles FC", stadium: "BMO Stadium", city: "Los Angeles, CA", lat: 34.0128, lon: -118.2841, primaryColor: "#000000", secondaryColor: "#C39E6D", roofStyle: "sail", capacity: 22000 },
+  { id: "MIN", team: "Minnesota United FC", stadium: "Allianz Field", city: "Saint Paul, MN", lat: 44.9530, lon: -93.1650, primaryColor: "#8CD2F4", secondaryColor: "#231F20", roofStyle: "geodesic", capacity: 19400 },
+  { id: "NSH", team: "Nashville SC", stadium: "Geodis Park", city: "Nashville, TN", lat: 36.1302, lon: -86.7656, primaryColor: "#ECE83A", secondaryColor: "#1F1646", roofStyle: "rectilinear", capacity: 30109 },
+  { id: "NE", team: "New England Revolution", stadium: "Gillette Stadium", city: "Foxborough, MA", lat: 42.0909, lon: -71.2643, primaryColor: "#0A2240", secondaryColor: "#CE0E2D", roofStyle: "arch", capacity: 65878 },
+  { id: "NYC", team: "New York City FC", stadium: "Yankee Stadium (Primary) / Citi Field", city: "New York, NY", lat: 40.8296, lon: -73.9262, primaryColor: "#6CACE4", secondaryColor: "#041E42", roofStyle: "colonnade", capacity: 46537 },
+  { id: "RBNY", team: "New York Red Bulls", stadium: "Sports Illustrated Stadium", city: "Harrison, NJ", lat: 40.7368, lon: -74.1503, primaryColor: "#ED1E36", secondaryColor: "#23326A", roofStyle: "wave", capacity: 25000 },
+  { id: "ORL", team: "Orlando City SC", stadium: "Inter&Co Stadium", city: "Orlando, FL", lat: 28.5411, lon: -81.3893, primaryColor: "#633492", secondaryColor: "#FDE192", roofStyle: "canopy", capacity: 25500 },
+  { id: "PHI", team: "Philadelphia Union", stadium: "Subaru Park", city: "Chester, PA", lat: 39.8328, lon: -75.3786, primaryColor: "#071B2C", secondaryColor: "#B19B69", roofStyle: "cantilever", capacity: 18500 },
+  { id: "POR", team: "Portland Timbers", stadium: "Providence Park", city: "Portland, OR", lat: 45.5215, lon: -122.6917, primaryColor: "#004812", secondaryColor: "#D69A00", roofStyle: "cantilever", capacity: 25218 },
+  { id: "RSL", team: "Real Salt Lake", stadium: "America First Field", city: "Sandy, UT", lat: 40.5829, lon: -111.8933, primaryColor: "#B30838", secondaryColor: "#013A81", roofStyle: "arch", capacity: 20213 },
+  { id: "SD", team: "San Diego FC", stadium: "Snapdragon Stadium", city: "San Diego, CA", lat: 32.7838, lon: -117.1225, primaryColor: "#002F65", secondaryColor: "#8DB6D5", roofStyle: "canopy", capacity: 35000 },
+  { id: "SJ", team: "San Jose Earthquakes", stadium: "PayPal Park", city: "San Jose, CA", lat: 37.3513, lon: -121.9251, primaryColor: "#0067B1", secondaryColor: "#000000", roofStyle: "cantilever", capacity: 18000 },
+  { id: "SEA", team: "Seattle Sounders FC", stadium: "Lumen Field", city: "Seattle, WA", lat: 47.5952, lon: -122.3316, primaryColor: "#5D9741", secondaryColor: "#005595", roofStyle: "arch", capacity: 37722 },
+  { id: "SKC", team: "Sporting Kansas City", stadium: "Sporting Park", city: "Kansas City, KS", lat: 39.1218, lon: -94.8233, primaryColor: "#91B0D5", secondaryColor: "#002F65", roofStyle: "cantilever", capacity: 18467 },
+  { id: "STL", team: "St. Louis City SC", stadium: "Energizer Park", city: "St. Louis, MO", lat: 38.6311, lon: -90.2108, primaryColor: "#DD004A", secondaryColor: "#0A1E2D", roofStyle: "wave", capacity: 22423 },
+  { id: "TOR", team: "Toronto FC", stadium: "BMO Field", city: "Toronto, ON", lat: 43.6332, lon: -79.4186, primaryColor: "#B81137", secondaryColor: "#455560", roofStyle: "canopy", capacity: 30991 },
+  { id: "VAN", team: "Vancouver Whitecaps FC", stadium: "BC Place", city: "Vancouver, BC", lat: 49.2768, lon: -123.1119, primaryColor: "#00245E", secondaryColor: "#9DC2EA", roofStyle: "dome", capacity: 54500 }
+];
+
+const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving/";
+const NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search";
+const CANDIDATE_COUNT = 8;
+const RESULT_COUNT = 4;
+const METERS_PER_MILE = 1609.344;
+
+/* ===================================================================
+   2. DETERMINISTIC UNIQUE SVG STADIUM ICON GENERATOR
+   =================================================================== */
+function hashString(str) {
+  // FNV-1a 32-bit — deterministic per stadium record
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastText(hex) { return luminance(hex) > 0.4 ? "#111111" : "#FFFFFF"; }
+
+// Brightest club color for text on the dark map label; white if both are too dark.
+function labelColor(st) {
+  const c = luminance(st.primaryColor) >= luminance(st.secondaryColor) ? st.primaryColor : st.secondaryColor;
+  return luminance(c) < 0.18 ? "#FFFFFF" : c;
+}
+
+function escapeXml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Roof / silhouette shapes on a 64x64 canvas; the bowl body sits at y≈34-50.
+function drawRoof(style, p, s, h) {
+  const stroke = `stroke="${s}" stroke-width="1.5"`;
+  switch (style) {
+    case "dome":
+      return `<path d="M10 36 Q32 6 54 36 Z" fill="${p}" ${stroke}/>` +
+             `<path d="M18 33 Q32 14 46 33" fill="none" stroke="${s}" stroke-width="1"/>` +
+             `<line x1="32" y1="14" x2="32" y2="36" stroke="${s}" stroke-width="1"/>` +
+             [0, 1, 2].map(i => `<line x1="${14 + i * 18}" y1="36" x2="${18 + i * 14}" y2="${22 - (i % 2) * 6}" stroke="${s}" stroke-width="1.6"/>`).join("");
+    case "petal":
+      return [0, 1, 2, 3, 4, 5, 6, 7].map(i => {
+        const a = (i / 8) * Math.PI * 2 + (h % 7) * 0.05;
+        const x = 32 + Math.cos(a) * 11, y = 26 + Math.sin(a) * 6;
+        return `<path d="M32 26 L${(x + Math.cos(a + 0.5) * 6).toFixed(1)} ${(y + Math.sin(a + 0.5) * 3).toFixed(1)} L${x.toFixed(1)} ${y.toFixed(1)} Z" fill="${i % 2 ? p : s}" stroke="#fff" stroke-width=".5"/>`;
+      }).join("") + `<ellipse cx="32" cy="34" rx="22" ry="5" fill="${p}" ${stroke}/>`;
+    case "canopy":
+      return `<path d="M6 32 L32 22 L58 32 L54 36 L10 36 Z" fill="${p}" ${stroke}/>` +
+             `<path d="M10 33 L54 33" stroke="${s}" stroke-width="1"/>`;
+    case "open-bowl":
+      return `<ellipse cx="32" cy="35" rx="25" ry="9" fill="${p}" ${stroke}/>` +
+             `<ellipse cx="32" cy="35" rx="16" ry="5" fill="#2e8b3e" stroke="#fff" stroke-width=".8"/>` +
+             `<line x1="32" y1="30" x2="32" y2="40" stroke="#fff" stroke-width=".6"/>`;
+    case "arch":
+      return `<path d="M8 36 Q32 2 56 36" fill="none" stroke="${s}" stroke-width="3.2"/>` +
+             `<path d="M8 36 Q32 2 56 36" fill="none" stroke="${p}" stroke-width="1.4"/>` +
+             `<rect x="10" y="30" width="44" height="6" fill="${p}" ${stroke}/>`;
+    case "rectilinear":
+      return `<rect x="8" y="22" width="48" height="14" fill="${p}" ${stroke}/>` +
+             [0, 1, 2, 3, 4, 5].map(i => `<rect x="${11 + i * 7.5}" y="25" width="5" height="8" fill="${s}" opacity=".55"/>`).join("");
+    case "geodesic":
+      return `<path d="M8 36 L14 24 L50 24 L56 36 Z" fill="${p}" ${stroke}/>` +
+             [0, 1, 2, 3, 4, 5].map(i => `<path d="M${11 + i * 7} 36 L${15 + i * 7} 24 L${19 + i * 7} 36" fill="none" stroke="${s}" stroke-width=".9"/>`).join("");
+    case "sail":
+      return `<path d="M8 36 L20 14 L26 36 Z" fill="${p}" ${stroke}/>` +
+             `<path d="M24 36 L34 10 L40 36 Z" fill="${s}" stroke="${p}" stroke-width="1.5"/>` +
+             `<path d="M38 36 L48 16 L56 36 Z" fill="${p}" ${stroke}/>`;
+    case "horseshoe":
+      return `<path d="M10 36 L10 26 Q32 16 54 26 L54 36 L46 36 L46 30 Q32 24 18 30 L18 36 Z" fill="${p}" ${stroke}/>`;
+    case "colonnade":
+      return `<rect x="8" y="22" width="48" height="4" fill="${s}" stroke="${p}" stroke-width="1"/>` +
+             [0, 1, 2, 3, 4, 5, 6].map(i => `<rect x="${10 + i * 6.6}" y="26" width="3" height="10" fill="${p}"/>`).join("") +
+             `<rect x="8" y="35" width="48" height="2" fill="${s}"/>`;
+    case "wave":
+      return `<path d="M6 36 L6 28 Q19 18 32 28 T58 28 L58 36 Z" fill="${p}" ${stroke}/>` +
+             `<path d="M8 31 Q19 23 32 31 T56 31" fill="none" stroke="${s}" stroke-width="1"/>`;
+    case "cantilever":
+    default:
+      return `<path d="M6 24 L58 24 L52 28 L12 28 Z" fill="${p}" ${stroke}/>` +
+             `<line x1="14" y1="28" x2="14" y2="36" stroke="${s}" stroke-width="2"/>` +
+             `<line x1="50" y1="28" x2="50" y2="36" stroke="${s}" stroke-width="2"/>` +
+             `<rect x="10" y="31" width="44" height="5" fill="${s}" opacity=".6"/>`;
+  }
+}
+
+function createUniqueStadiumIcon(stadiumObj) {
+  const p = stadiumObj.primaryColor;
+  const s = stadiumObj.secondaryColor;
+  const h = hashString(`${stadiumObj.id}|${stadiumObj.stadium}|${stadiumObj.lat}|${stadiumObj.lon}`);
+  const gid = `g_${stadiumObj.id}`;
+  const lights = 2 + (h % 3);                 // 2–4 floodlight towers
+  const tiers = 2 + ((h >>> 3) % 3);          // 2–4 seating tier bands
+  const badgeShape = (h >>> 6) % 3;           // 0 shield, 1 circle, 2 hexagon
+  const capBar = Math.max(4, Math.min(44, Math.round((stadiumObj.capacity / 70000) * 44)));
+  const textColor = contrastText(p);
+
+  const floodlights = Array.from({ length: lights }, (_, i) => {
+    const x = 6 + (i * 52) / (lights - 1);
+    return `<line x1="${x.toFixed(1)}" y1="36" x2="${x.toFixed(1)}" y2="14" stroke="#cfd8e3" stroke-width="1.2"/>` +
+           `<rect x="${(x - 2.5).toFixed(1)}" y="11" width="5" height="3" rx="1" fill="#fff8c4" stroke="${s}" stroke-width=".6"/>`;
+  }).join("");
+
+  const tierBands = Array.from({ length: tiers }, (_, i) => {
+    const y = 37 + i * (11 / tiers);
+    return `<rect x="${8 + i * 2}" y="${y.toFixed(1)}" width="${48 - i * 4}" height="${(11 / tiers - 0.8).toFixed(1)}" fill="${i % 2 ? s : p}" opacity="${(0.95 - i * 0.12).toFixed(2)}"/>`;
+  }).join("");
+
+  let badge;
+  if (badgeShape === 0) badge = `<path d="M22 50 L42 50 L42 56 Q32 63 22 56 Z" fill="${p}" stroke="${s}" stroke-width="1.4"/>`;
+  else if (badgeShape === 1) badge = `<circle cx="32" cy="55" r="7.5" fill="${p}" stroke="${s}" stroke-width="1.4"/>`;
+  else badge = `<path d="M25 50 L39 50 L43 55.5 L39 61 L25 61 L21 55.5 Z" fill="${p}" stroke="${s}" stroke-width="1.4"/>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="56" height="56" data-stadium="${escapeXml(stadiumObj.id)}" data-roof="${escapeXml(stadiumObj.roofStyle)}" data-hash="${h.toString(16)}">` +
+    `<title>${escapeXml(stadiumObj.team)} — ${escapeXml(stadiumObj.stadium)}</title>` +
+    `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p}"/><stop offset="1" stop-color="${s}"/></linearGradient></defs>` +
+    `<rect x="1" y="1" width="62" height="62" rx="12" fill="url(#${gid})" opacity=".22" stroke="${p}" stroke-width="1.5"/>` +
+    floodlights +
+    drawRoof(stadiumObj.roofStyle, p, s, h) +
+    tierBands +
+    `<rect x="10" y="48" width="${capBar}" height="1.6" fill="${s}" opacity=".9"/>` +
+    badge +
+    `<text x="32" y="${badgeShape === 1 ? 57.6 : 57.8}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="${stadiumObj.id.length > 3 ? 5.2 : 6.4}" fill="${textColor}">${escapeXml(stadiumObj.id)}</text>` +
+    `</svg>`;
+}
+
+/* ===================================================================
+   3. GIS HELPERS
+   =================================================================== */
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.7613; // Earth radius in miles
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function formatDuration(seconds) {
+  const totalMin = Math.round(seconds / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function isValidCoord(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && !(lat === 0 && lon === 0);
+}
+
+/* ===================================================================
+   4. MAP SETUP (Leaflet + toggleable base layers)
+   =================================================================== */
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
+});
+const topoLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+  maxZoom: 17, attribution: "Map data &copy; OpenStreetMap contributors, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)"
+});
+const satelliteLayer = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+});
+const satLabels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Labels &copy; Esri"
+});
+
+const map = L.map("map", { layers: [streetLayer], zoomControl: true }).setView([39.5, -98.35], 4);
+const routeLayer = L.layerGroup().addTo(map);
+const stadiumLayer = L.layerGroup().addTo(map);
+const universityLayer = L.layerGroup().addTo(map);
+
+L.control.layers(
+  {
+    "OpenStreetMap (Street)": streetLayer,
+    "OpenTopoMap (Topographic)": topoLayer,
+    "Esri World Imagery (Satellite)": satelliteLayer
+  },
+  {
+    "Esri Place Labels": satLabels,
+    "Driving Routes (OSRM)": routeLayer,
+    "MLS Stadiums": stadiumLayer,
+    "University Campus": universityLayer
+  },
+  { collapsed: window.innerWidth < 1400 }
+).addTo(map);
+L.control.scale({ imperial: true, metric: true }).addTo(map);
+
+const universityIcon = L.divIcon({
+  className: "uni-marker",
+  iconSize: [38, 46],
+  iconAnchor: [19, 44],
+  popupAnchor: [0, -40],
+  html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 46" width="38" height="46">
+    <path d="M19 45 C19 45 3 27 3 17 A16 16 0 0 1 35 17 C35 27 19 45 19 45 Z" fill="#1e3a8a" stroke="#fff" stroke-width="2"/>
+    <path d="M8 16 L19 10 L30 16 L19 22 Z" fill="#facc15" stroke="#fff" stroke-width=".8"/>
+    <path d="M12 18 L12 23 Q19 27 26 23 L26 18 L19 22 Z" fill="#fde68a"/>
+    <line x1="29" y1="16" x2="29" y2="23" stroke="#facc15" stroke-width="1.4"/>
+    <circle cx="29" cy="24" r="1.4" fill="#facc15"/>
+  </svg>`
+});
+
+/* ===================================================================
+   5. GEOCODING (Nominatim) with search validation
+   =================================================================== */
+const UNI_PATTERN = /\b(university|universidad|college|institute|polytechnic|school of|academy|seminary|conservatory|tech)\b/i;
+
+function validateQuery(raw) {
+  const q = raw.trim().replace(/\s+/g, " ");
+  if (q.length < 3) return { ok: false, msg: "Please enter at least 3 characters." };
+  if (q.length > 120) return { ok: false, msg: "University name is too long (max 120 characters)." };
+  if (!/[a-z]/i.test(q)) return { ok: false, msg: "Please enter a university name containing letters." };
+  if (/[<>{}\[\]\\^`|]/.test(q)) return { ok: false, msg: "Please remove special characters such as < > { } [ ] | from the query." };
+  return { ok: true, q };
+}
+
+async function geocodeUniversity(q) {
+  const url = `${NOMINATIM_BASE}?format=json&countrycodes=us&addressdetails=1&limit=10&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { headers: { "Accept": "application/json", "Accept-Language": "en" } });
+  if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error(`No US location found for "${q}". Try the full official name (e.g. "University of Texas at Austin").`);
+  }
+  const isCampus = r => ["university", "college"].includes(r.type) || (r.class === "amenity" && /university|college/.test(r.type)) || r.addresstype === "university";
+  const looksLikeUni = r => UNI_PATTERN.test(r.display_name || "") || UNI_PATTERN.test(r.name || "");
+  const best = data.find(isCampus) || data.find(looksLikeUni);
+  if (!best) {
+    throw new Error(`"${q}" did not resolve to a university or college campus in the US (closest match: ${data[0].display_name}). Please refine your search.`);
+  }
+  const lat = parseFloat(best.lat), lon = parseFloat(best.lon);
+  if (!isValidCoord(lat, lon)) throw new Error("Nominatim returned invalid coordinates.");
+  return { lat, lon, displayName: best.display_name, name: best.name || q, type: `${best.class}/${best.type}`, osmId: `${best.osm_type}/${best.osm_id}` };
+}
+
+/* ===================================================================
+   6. OSRM ROAD ROUTING (Stage 2)
+   =================================================================== */
+async function fetchOsrmRoute(uni, stad, attempt = 1) {
+  const url = `${OSRM_BASE}${uni.lon},${uni.lat};${stad.lon},${stad.lat}?overview=full&geometries=geojson`;
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    if (attempt < 4) { await sleep(800 * 2 ** (attempt - 1)); return fetchOsrmRoute(uni, stad, attempt + 1); }
+    return { ok: false, httpStatus: 0, error: `Network error: ${e.message}` };
+  }
+  if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+    await sleep(1000 * 2 ** (attempt - 1));
+    return fetchOsrmRoute(uni, stad, attempt + 1);
+  }
+  if (!res.ok) return { ok: false, httpStatus: res.status, error: `HTTP ${res.status}` };
+  const json = await res.json();
+  if (json.code !== "Ok" || !json.routes || !json.routes.length) {
+    return { ok: false, httpStatus: res.status, error: `OSRM code ${json.code || "unknown"}` };
+  }
+  const route = json.routes[0];
+  return {
+    ok: true,
+    httpStatus: res.status,
+    osrmCode: json.code,
+    distanceMeters: route.distance,
+    durationSeconds: route.duration,
+    distanceMiles: Math.round((route.distance / METERS_PER_MILE) * 10) / 10,
+    geometry: route.geometry
+  };
+}
+
+// Light concurrency (2 at a time) to respect the public OSRM demo server.
+async function routeCandidates(uni, candidates, onProgress) {
+  const results = new Array(candidates.length);
+  let next = 0, done = 0;
+  async function worker() {
+    while (next < candidates.length) {
+      const i = next++;
+      const c = candidates[i];
+      const r = await fetchOsrmRoute(uni, c.stadium);
+      results[i] = { ...c, route: r };
+      done++;
+      onProgress(done, candidates.length, c.stadium);
+      await sleep(150);
+    }
+  }
+  await Promise.all([worker(), worker()]);
+  return results;
+}
+
+/* ===================================================================
+   7. RENDERING
+   =================================================================== */
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+function setStatus(msg, isError = false) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("error", isError);
+}
+
+function clearMap() {
+  routeLayer.clearLayers();
+  stadiumLayer.clearLayers();
+  universityLayer.clearLayers();
+}
+
+const DASH_PATTERNS = [null, "14 6", "4 6", "16 4 4 4"];
+
+function renderMap(uni, top) {
+  clearMap();
+  const bounds = L.latLngBounds([[uni.lat, uni.lon]]);
+
+  L.marker([uni.lat, uni.lon], { icon: universityIcon, zIndexOffset: 1000, title: uni.name })
+    .bindPopup(`<b>${escapeXml(uni.name)}</b><br>${escapeXml(uni.displayName)}<br><small>${uni.lat.toFixed(5)}, ${uni.lon.toFixed(5)}</small>`)
+    .bindTooltip(`🎓 ${escapeXml(uni.name)}`, { direction: "top", offset: [0, -40] })
+    .addTo(universityLayer);
+
+  const svgStrings = [];
+  const polylines = [];
+
+  top.forEach((c, idx) => {
+    const st = c.stadium;
+    // OSRM GeoJSON is [lon, lat]; Leaflet wants [lat, lon]
+    const latlngs = c.route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+    const casing = L.polyline(latlngs, { color: "#ffffff", weight: 8, opacity: 0.85, lineCap: "round", lineJoin: "round" });
+    const line = L.polyline(latlngs, {
+      color: st.primaryColor, weight: 5, opacity: 0.95, dashArray: DASH_PATTERNS[idx], lineCap: "round", lineJoin: "round"
+    });
+    casing.addTo(routeLayer);
+    line.addTo(routeLayer);
+    line.bindTooltip(`#${idx + 1} ${escapeXml(st.team)}: ${c.route.distanceMiles.toFixed(1)} mi · ${formatDuration(c.route.durationSeconds)}`, { sticky: true });
+    polylines.push({ id: st.id, vertices: line.getLatLngs().length });
+    bounds.extend(line.getBounds());
+
+    const svg = createUniqueStadiumIcon(st);
+    svgStrings.push(svg);
+    const icon = L.divIcon({ className: "stadium-marker", html: svg, iconSize: [56, 56], iconAnchor: [28, 28], popupAnchor: [0, -26] });
+    const marker = L.marker([st.lat, st.lon], { icon, title: `${st.team} — ${st.stadium}`, zIndexOffset: 500 - idx })
+      .bindPopup(`<b>#${idx + 1} ${escapeXml(st.team)}</b><br>${escapeXml(st.stadium)}<br>${escapeXml(st.city)}<br>` +
+                 `Road: <b>${c.route.distanceMiles.toFixed(1)} mi</b> · ${formatDuration(c.route.durationSeconds)}<br>` +
+                 `Straight-line: ${c.haversine.toFixed(1)} mi<br>Capacity: ${st.capacity.toLocaleString()}`)
+      .addTo(stadiumLayer);
+    marker.bindTooltip(`<b>${escapeXml(st.team)}</b><br>${escapeXml(st.stadium)}`, {
+      permanent: true, direction: idx % 2 ? "left" : "right", offset: [idx % 2 ? -28 : 28, 0], className: "stadium-label"
+    });
+    const styleLabel = el => {
+      if (!el) return;
+      el.style.setProperty("--c", st.primaryColor);
+      el.style.setProperty("--c2", labelColor(st));
+    };
+    marker.on("tooltipopen", e => styleLabel(e.tooltip.getElement()));
+    // Leaflet opens permanent tooltips immediately on add, so style it now too.
+    styleLabel(marker.getTooltip() && marker.getTooltip().getElement());
+    c.marker = marker;
+    c.line = line;
+  });
+
+  map.fitBounds(bounds, { padding: [50, 50] });
+  return { svgStrings, polylines };
+}
+
+function renderResults(uni, top, routed) {
+  $("universityBox").innerHTML =
+    `<div class="uni-card"><b>🎓 ${escapeXml(uni.name)}</b>${escapeXml(uni.displayName)}<br>` +
+    `<small>WGS84: ${uni.lat.toFixed(5)}, ${uni.lon.toFixed(5)} · OSM ${escapeXml(uni.osmId)} (${escapeXml(uni.type)})</small></div>`;
+
+  $("results").innerHTML = "";
+  top.forEach((c, idx) => {
+    const st = c.stadium;
+    const div = document.createElement("div");
+    div.className = "result";
+    div.style.setProperty("--c", st.primaryColor);
+    div.innerHTML =
+      `<div class="rank">${idx + 1}</div>` +
+      `<div class="icon">${createUniqueStadiumIcon(st)}</div>` +
+      `<div class="info"><div class="team">${escapeXml(st.team)}</div>` +
+      `<div class="stad">${escapeXml(st.stadium)} · ${escapeXml(st.city)}</div>` +
+      `<div class="metrics"><span>🚗 <b>${c.route.distanceMiles.toFixed(1)} mi</b></span>` +
+      `<span>⏱ <b>${formatDuration(c.route.durationSeconds)}</b></span>` +
+      `<span>📏 ${c.haversine.toFixed(1)} mi air</span></div></div>`;
+    div.addEventListener("click", () => {
+      map.fitBounds(c.line.getBounds().extend([uni.lat, uni.lon]), { padding: [60, 60] });
+      c.marker.openPopup();
+    });
+    $("results").appendChild(div);
+  });
+
+  const topIds = new Set(top.map(c => c.stadium.id));
+  const rows = [...routed]
+    .sort((a, b) => (a.route.ok ? a.route.distanceMeters : Infinity) - (b.route.ok ? b.route.distanceMeters : Infinity))
+    .map(c => `<tr class="${topIds.has(c.stadium.id) ? "top" : ""}"><td>${escapeXml(c.stadium.team)}</td>` +
+              `<td>${c.haversine.toFixed(1)}</td>` +
+              `<td>${c.route.ok ? c.route.distanceMiles.toFixed(1) : `<span class="bad">${escapeXml(c.route.error)}</span>`}</td>` +
+              `<td>${c.route.ok ? formatDuration(c.route.durationSeconds) : "—"}</td></tr>`).join("");
+  $("candidates").innerHTML =
+    `<div class="candidates"><b>Stage 1 → Stage 2: ${routed.length} Haversine candidates re-ranked by OSRM road distance</b>` +
+    `<table><tr><th>Club</th><th>Air mi</th><th>Road mi</th><th>Drive</th></tr>${rows}</table></div>`;
+}
+
+/* ===================================================================
+   8. GIS INTEGRITY & VERIFICATION AUDIT
+   =================================================================== */
+function badge(pass) {
+  return `<span class="badge ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span>`;
+}
+
+function runAudit(top, rendered) {
+  const checks = [];
+
+  // Check 1 — dataset completeness + unique icon parameters across all 30
+  // All 30 venues lie in the US/Canada; reject nulls, swapped lat/lon and out-of-region points
+  const coordOk = stadiums.filter(s => isValidCoord(s.lat, s.lon) && s.lat > 24 && s.lat < 50 && s.lon > -125 && s.lon < -70);
+  const paramsOk = stadiums.filter(s => /^#[0-9A-F]{6}$/i.test(s.primaryColor) && /^#[0-9A-F]{6}$/i.test(s.secondaryColor) && s.roofStyle && s.capacity > 0 && s.team && s.stadium);
+  const allSvgs = stadiums.map(createUniqueStadiumIcon);
+  const uniqueAll = new Set(allSvgs).size;
+  const uniqueIds = new Set(stadiums.map(s => s.id)).size;
+  const c1 = stadiums.length === 30 && coordOk.length === 30 && paramsOk.length === 30 && uniqueAll === 30 && uniqueIds === 30;
+  checks.push({
+    title: "Check 1 · Dataset Completeness", pass: c1,
+    detail: `stadiums.length = <b>${stadiums.length}</b> (expected 30) · valid in-region WGS84 coordinates: <b>${coordOk.length}/30</b> · ` +
+            `complete icon parameters (colors, roofStyle, capacity): <b>${paramsOk.length}/30</b> · ` +
+            `unique generated SVGs across full dataset: <b>${uniqueAll}/30</b> · roof styles used: ${new Set(stadiums.map(s => s.roofStyle)).size}`
+  });
+
+  // Check 2 — true road routing vs straight line
+  const c2rows = top.map(c => {
+    const ok = c.route.ok && c.route.httpStatus === 200 && c.route.distanceMiles > c.haversine;
+    return { ok, html: `<tr><td>${escapeXml(c.stadium.id)}</td><td>${c.haversine.toFixed(1)}</td><td>${c.route.distanceMiles.toFixed(1)}</td>` +
+      `<td>${(c.route.distanceMiles / c.haversine).toFixed(2)}×</td><td class="${c.route.httpStatus === 200 ? "ok" : "bad"}">${c.route.httpStatus} ${escapeXml(c.route.osrmCode || "")}</td>` +
+      `<td class="${ok ? "ok" : "bad"}">${ok ? "road &gt; air ✓" : "✗"}</td></tr>` };
+  });
+  const c2 = top.length === RESULT_COUNT && c2rows.every(r => r.ok);
+  checks.push({
+    title: "Check 2 · True Road Routing vs. Straight-Line", pass: c2,
+    detail: `Each route must come from a live OSRM HTTP 200 payload and its road distance must exceed the Haversine distance.` +
+            `<table><tr><th>Club</th><th>Air mi</th><th>Road mi</th><th>Ratio</th><th>OSRM</th><th>Result</th></tr>${c2rows.map(r => r.html).join("")}</table>`
+  });
+
+  // Check 3 — polyline geometry fidelity (vertex counts from the rendered Leaflet polylines)
+  const c3rows = top.map((c, i) => {
+    const v = rendered.polylines[i].vertices;
+    const intercity = c.haversine >= 25;
+    const min = intercity ? 51 : 3;
+    const ok = v >= min && v === c.route.geometry.coordinates.length;
+    return { ok, html: `<tr><td>${escapeXml(c.stadium.id)}</td><td><b>${v.toLocaleString()}</b></td><td>${intercity ? "intercity (&gt;50 req.)" : "local (&lt;25 mi air, &gt;2 req.)"}</td>` +
+      `<td class="${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"}</td></tr>` };
+  });
+  const c3 = top.length === RESULT_COUNT && c3rows.every(r => r.ok);
+  checks.push({
+    title: "Check 3 · Polyline Geometry Fidelity", pass: c3,
+    detail: `Rendered GPS vertex count per route (OSRM overview=full GeoJSON). A 2-point line would indicate a fake straight segment.` +
+            `<table><tr><th>Club</th><th>Vertices</th><th>Route class</th><th>Result</th></tr>${c3rows.map(r => r.html).join("")}</table>`
+  });
+
+  // Check 4 — unique icon hash check for the 4 rendered markers
+  const hashes = rendered.svgStrings.map(s => hashString(s).toString(16).padStart(8, "0"));
+  const c4 = new Set(rendered.svgStrings).size === RESULT_COUNT;
+  checks.push({
+    title: "Check 4 · Unique Icon Hash Check", pass: c4,
+    detail: `new Set(svgStrings).size = <b>${new Set(rendered.svgStrings).size}</b> (expected ${RESULT_COUNT})<br>` +
+            top.map((c, i) => `${escapeXml(c.stadium.id)} [${escapeXml(c.stadium.roofStyle)}]: <code>${hashes[i]}</code>`).join(" · ")
+  });
+
+  const allPass = checks.every(c => c.pass);
+  $("audit").innerHTML =
+    `<div class="check"><div class="check-head"><span>Overall integrity</span>${badge(allPass)}</div>` +
+    `<div class="check-detail">Audit run at ${new Date().toLocaleTimeString()} · ${checks.filter(c => c.pass).length}/${checks.length} checks passed</div></div>` +
+    checks.map(c => `<div class="check"><div class="check-head"><span>${c.title}</span>${badge(c.pass)}</div><div class="check-detail">${c.detail}</div></div>`).join("");
+}
+
+/* ===================================================================
+   9. MAIN PIPELINE
+   =================================================================== */
+let activeSearch = 0;
+
+async function runSearch(rawQuery) {
+  const v = validateQuery(rawQuery);
+  if (!v.ok) { setStatus(v.msg, true); return; }
+  const searchId = ++activeSearch;
+  const btn = $("searchBtn");
+  btn.disabled = true;
+  $("audit").innerHTML = `<div class="check"><div class="check-head"><span>Audit</span><span class="badge pending">RUNNING</span></div></div>`;
+
+  try {
+    setStatus(`Geocoding "${v.q}" with OpenStreetMap Nominatim…`);
+    const uni = await geocodeUniversity(v.q);
+    if (searchId !== activeSearch) return;
+
+    // Stage 1 — Haversine spatial pre-filter to 8 candidates
+    const candidates = stadiums
+      .map(s => ({ stadium: s, haversine: haversineMiles(uni.lat, uni.lon, s.lat, s.lon) }))
+      .sort((a, b) => a.haversine - b.haversine)
+      .slice(0, CANDIDATE_COUNT);
+
+    clearMap();
+    L.marker([uni.lat, uni.lon], { icon: universityIcon }).addTo(universityLayer);
+    map.setView([uni.lat, uni.lon], 7);
+
+    // Stage 2 — live OSRM road routing for each candidate
+    setStatus(`Found ${uni.name}. Routing ${CANDIDATE_COUNT} candidate stadiums via OSRM… (0/${CANDIDATE_COUNT})`);
+    const routed = await routeCandidates(uni, candidates, (done, total, st) => {
+      if (searchId === activeSearch) setStatus(`Found ${uni.name}. Routing via OSRM… (${done}/${total}) — ${st.team}`);
+    });
+    if (searchId !== activeSearch) return;
+
+    const okRoutes = routed.filter(c => c.route.ok);
+    if (okRoutes.length < RESULT_COUNT) {
+      const failed = routed.filter(c => !c.route.ok).map(c => `${c.stadium.id} (${c.route.error})`).join(", ");
+      throw new Error(`OSRM returned only ${okRoutes.length} valid routes (need ${RESULT_COUNT}). Failed: ${failed}. The public OSRM server may be rate-limiting — please retry in a moment.`);
+    }
+
+    const top = okRoutes.sort((a, b) => a.route.distanceMeters - b.route.distanceMeters).slice(0, RESULT_COUNT);
+    const rendered = renderMap(uni, top);
+    renderResults(uni, top, routed);
+    runAudit(top, rendered);
+    setStatus(`Showing the ${RESULT_COUNT} closest MLS stadiums to ${uni.name} by OSRM road distance. Click a result to zoom to its route.`);
+  } catch (err) {
+    if (searchId !== activeSearch) return;
+    console.error(err);
+    setStatus(err.message || String(err), true);
+    $("audit").innerHTML = `<div class="check"><div class="check-head"><span>Audit</span>${badge(false)}</div><div class="check-detail">${escapeXml(err.message || String(err))}</div></div>`;
+  } finally {
+    if (searchId === activeSearch) btn.disabled = false;
+  }
+}
+
+$("searchForm").addEventListener("submit", e => {
+  e.preventDefault();
+  runSearch($("uniInput").value);
+});
+</script>
+</body>
+</html>
